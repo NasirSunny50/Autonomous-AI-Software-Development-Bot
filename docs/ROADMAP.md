@@ -51,42 +51,45 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done & tested
       cwd-must-exist check, Windows `.cmd` handling
 - [x] 10 more tests (report parsing, worker outcome, run guards). Total **65 green**, ruff clean.
 
-## Phase 4 — Terminal execution + Git safety  `[ ]`
-- [ ] Working-directory validation per project
-- [ ] Command allow/deny guard (block destructive ops)
-- [ ] Checkpoint-before-task / commit-on-success / rollback-on-repeated-failure
+## Phase 4 — Terminal execution + Git safety  `[x]`
+- [x] `app/testing/commands.py` `ProjectCommandRunner`: workspace validation per project
+- [x] Command allow/deny guard (blocks destructive ops → require approval)
+- [x] Checkpoint-before-task / commit-on-success / rollback-on-repeated-failure (in orchestrator)
 
-## Phase 5 — Playwright browser QA  `[ ]`
-- [ ] Install Playwright; reusable utils: start dev server, navigate, click, fill, submit
-- [ ] Validate URL/text/elements; screenshots; console + network error capture
-- [ ] Basic responsiveness + broken-link checks
+## Phase 5 — Playwright browser QA  `[x]`
+- [x] Playwright + Chromium installed; `app/browser/playwright_qa.py`: start dev server,
+      detect URL, open headless, screenshot, console + network error capture
+- [x] Deterministic pass/fail; graceful skip when unavailable (Python 3.10-compatible)
+- [x] **Real-proven**: booted a node server → Chromium → HTTP 200 → screenshot saved
 
-## Phase 6 — Automatic debugging / self-healing  `[ ]`
-- [ ] Evidence collector (error, trace, failing test, console, screenshot, git diff)
-- [ ] Focused fix-task generator (evidence only — never whole project)
-- [ ] Retry loop ≤ `MAX_RETRIES` → else rollback + human-review message
+## Phase 6 — Automatic debugging / self-healing  `[x]`
+- [x] Evidence collector: gate failures + git diff + free-model triage (never whole project)
+- [x] Focused fix-task generator (`build_fix_prompt`, evidence only)
+- [x] Retry loop ≤ `MAX_RETRIES` → else rollback to checkpoint + HUMAN REVIEW message
 
-## Phase 7 — Quality gate + acceptance criteria  `[ ]`
-- [ ] Per-project-type gate: build / test / lint / typecheck / browser / AC
-- [ ] Individual acceptance-criteria tracking; task "COMPLETED" only when gate passes
-- [ ] Risk-based AI review (auth, payments, DB migrations, security only)
+## Phase 7 — Quality gate + acceptance criteria  `[x]`
+- [x] `app/testing/quality_gate.py`: node (install/build/test/lint/typecheck) + python +
+      browser; deterministic verdict = the real authority on completion
+- [x] Acceptance-criteria marked satisfied only when the gate passes
+- [x] Risk-based AI review (auth/payments/db/security only) via free model, non-blocking
 
-## Phase 8 — Token optimization + quota management  `[ ]`
-- [ ] Context minimizer (relevant files/sections only)
-- [ ] Compact project memory read/write
-- [ ] Analysis cache (no duplicate AI calls); deterministic-checks-first ordering
-- [ ] Scaffold via CLIs (`create-next-app`, etc.) instead of AI-generated boilerplate
+## Phase 8 — Token optimization + quota management  `[x]`
+- [x] `app/claude/context.py` context minimizer (only listed files, trimmed, budgeted)
+- [x] `app/memory/project_memory.py` compact memory read/write
+- [x] Response cache (Phase 2) + deterministic-checks-first ordering
+- [x] Planner prompts Claude to scaffold via official CLIs instead of hand-written boilerplate
 
-## Phase 9 — Security + authorization + autonomy  `[ ]`
-- [ ] Telegram owner authorization hardening
-- [ ] Autonomy levels (low/medium/high) + always-approve destructive/production actions
-- [ ] Secret-hygiene checks; inline approve/reject buttons
+## Phase 9 — Security + authorization + autonomy  `[x]`
+- [x] Telegram owner allow-list (rejects all others; callbacks re-checked)
+- [x] `app/security/autonomy.py` levels (low/medium/high) + always-approve destructive
+- [x] `app/security/secrets.py` hygiene (detect + redact); inline approve/reject buttons
 
-## Phase 10 — End-to-end + daily updates + deploy  `[ ]`
-- [ ] Full E2E: requirement → plan → build → QA → fix → commit → final report
-- [ ] Daily digest scheduler (`DAILY_UPDATE_TIME`)
-- [ ] Q&A over project state ("answer what I ask")
-- [ ] (Stretch, free) auto-deploy to a free host + live preview URL in Telegram
+## Phase 10 — End-to-end + daily updates + deploy  `[x]`
+- [x] Full E2E spine: requirement → plan → build → gate → self-heal → commit → final report
+- [x] Daily digest scheduler (`DAILY_UPDATE_TIME`, dependency-free asyncio loop)
+- [x] Q&A over project state (`/ask`, uses memory + logs, free-model)
+- [ ] (Stretch, free) auto-deploy to a free host + live preview URL — **documented as future work**;
+      not implemented so as not to claim an untested capability
 
 ---
 

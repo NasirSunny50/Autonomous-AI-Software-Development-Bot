@@ -7,27 +7,10 @@ provider is available the bot still works (and never pays).
 """
 from __future__ import annotations
 
-import json
-import re
-
 from app.ai.router import AIRouter
 from app.ai.token_manager import ResponseCache
+from app.utils.jsonparse import extract_json as _extract_json
 from app.utils.text import derive_project_name, truncate
-
-
-def _extract_json(text: str) -> dict | None:
-    """Pull the first JSON object out of a model reply (handles ``` fences)."""
-    text = text.strip()
-    text = re.sub(r"^```(?:json)?|```$", "", text, flags=re.MULTILINE).strip()
-    start = text.find("{")
-    end = text.rfind("}")
-    if start == -1 or end == -1 or end < start:
-        return None
-    try:
-        obj = json.loads(text[start:end + 1])
-        return obj if isinstance(obj, dict) else None
-    except json.JSONDecodeError:
-        return None
 
 
 class GlueAI:

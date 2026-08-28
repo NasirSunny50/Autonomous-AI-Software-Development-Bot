@@ -8,11 +8,11 @@ message if required configuration is missing.
 """
 from __future__ import annotations
 
-import asyncio
 import sys
 
 from app.ai.factory import build_router
 from app.ai.glue import GlueAI
+from app.browser.playwright_qa import BrowserQA, playwright_available
 from app.claude.worker import ClaudeWorker
 from app.config import get_settings
 from app.orchestrator.core import Orchestrator
@@ -48,9 +48,7 @@ def main() -> int:
         print("     CLAUDE_COMMAND=claude       (install @anthropic-ai/claude-code)")
         return 1
 
-    store = StateStore(settings.db_path)
-    asyncio.run(store.init())
-    log.info("State store initialized at %s", settings.db_path)
+    store = StateStore(settings.db_path)   # tables created in bot post-init
 
     worker = ClaudeWorker(
         command=settings.claude_command,
@@ -60,8 +58,14 @@ def main() -> int:
     glue = GlueAI(router)
     log.info("Free providers configured: %s", router.configured() or "none")
 
+    browser = BrowserQA(settings.logs_path) if playwright_available() else None
+    print(f" Browser QA       : {'playwright ready' if browser else 'disabled (no playwright)'}")
+
     bot = TelegramBot(settings, store)
-    orchestrator = Orchestrator(settings, store, worker, notify=bot.notify, glue=glue)
+    orchestrator = Orchestrator(
+        settings, store, worker, notify=bot.notify, glue=glue,
+        browser=browser, request_approval=bot.request_approval,
+    )
     application = bot.build(orchestrator)
 
     log.info("Bot starting (polling)…")
