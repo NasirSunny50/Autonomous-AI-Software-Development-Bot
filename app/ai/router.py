@@ -22,9 +22,9 @@ log = get_logger("ai")
 
 _ORDER: dict[str, list[str]] = {
     # fast first for trivial glue; big hosted model first for hard reasoning.
-    "simple": ["groq", "gemini", "ollama", "kilo", "openrouter"],
-    "normal": ["gemini", "ollama", "kilo", "groq", "openrouter"],
-    "complex": ["ollama", "kilo", "gemini", "openrouter", "groq"],
+    "simple": ["groq", "gemini", "mistral", "ollama", "kilo", "openrouter"],
+    "normal": ["gemini", "mistral", "ollama", "kilo", "groq", "openrouter"],
+    "complex": ["ollama", "kilo", "gemini", "mistral", "openrouter", "groq"],
 }
 _COOLDOWN_S = 60.0
 

@@ -99,6 +99,21 @@ async def test_openai_compat_multi_model_fallback():
     assert p.models == ["free-a", "free-b"]
 
 
+async def test_mistral_success_and_base_url():
+    from app.ai.providers.mistral import MistralProvider
+    captured = {}
+
+    def handler(request):
+        captured["url"] = str(request.url)
+        return httpx.Response(200, json={"choices": [{"message": {"content": "bonjour"}}]})
+
+    p = MistralProvider("key", "mistral-small-latest",
+                        transport=httpx.MockTransport(handler))
+    r = await p.complete("hi")
+    assert r.ok and r.text == "bonjour" and r.provider == "mistral"
+    assert captured["url"] == "https://api.mistral.ai/v1/chat/completions"
+
+
 async def test_ollama_success_and_base_url():
     from app.ai.providers.ollama import OllamaProvider
     captured = {}

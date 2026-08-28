@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     openrouter_api_key: str = ""
     ollama_api_key: str = ""
     kilo_api_key: str = ""
+    mistral_api_key: str = ""
     gemini_model: str = "gemini-2.0-flash"
     groq_model: str = "llama-3.3-70b-versatile"
     openrouter_model: str = "google/gemma-4-26b-a4b-it:free"
@@ -50,6 +51,8 @@ class Settings(BaseSettings):
     ollama_base_url: str = "https://ollama.com/v1"
     kilo_model: str = "kilo-auto/free"   # FREE only (gateway also has paid models)
     kilo_base_url: str = "https://api.kilo.ai/api/gateway"
+    mistral_model: str = "mistral-small-latest"
+    mistral_base_url: str = "https://api.mistral.ai/v1"
 
     # ---- Behaviour ----
     autonomy_level: Literal["low", "medium", "high"] = "high"
@@ -105,6 +108,8 @@ class Settings(BaseSettings):
             names.append("ollama")
         if self.kilo_api_key:
             names.append("kilo")
+        if self.mistral_api_key:
+            names.append("mistral")
         return names
 
     def ensure_dirs(self) -> None:

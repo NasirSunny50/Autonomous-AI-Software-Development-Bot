@@ -4,6 +4,7 @@ from __future__ import annotations
 from app.ai.providers.gemini import GeminiProvider
 from app.ai.providers.groq import GroqProvider
 from app.ai.providers.kilo import KiloProvider
+from app.ai.providers.mistral import MistralProvider
 from app.ai.providers.ollama import OllamaProvider
 from app.ai.providers.openrouter import OpenRouterProvider
 from app.ai.router import AIRouter
@@ -20,5 +21,7 @@ def build_router(settings: Settings) -> AIRouter:
                                  settings.ollama_base_url),
         "kilo": KiloProvider(settings.kilo_api_key, settings.kilo_model,
                              settings.kilo_base_url),
+        "mistral": MistralProvider(settings.mistral_api_key, settings.mistral_model,
+                                   settings.mistral_base_url),
     }
     return AIRouter(providers)
