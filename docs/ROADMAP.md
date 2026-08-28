@@ -39,10 +39,17 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done & tested
 - [x] 25 more unit + integration tests (providers via MockTransport, router fallback, glue,
       full orchestrator slice with fake worker). Total **55 tests green**, ruff clean.
 
-## Phase 3 — Claude Code integration (full)  `[ ]`
-- [ ] Structured coding-task templates (goal / requirements / AC / relevant files / instructions)
-- [ ] Structured result parsing; completion vs failure detection; execution logging
-- [ ] Timeout + uncontrolled-execution guards
+## Phase 3 — Claude Code integration (full)  `[x]`
+- [x] Structured coding-task templates (`app/claude/prompts.py`): goal / requirements /
+      AC / relevant files / instructions + concise trailing-report contract
+- [x] Structured result parsing (`app/claude/report.py`): CHANGED_FILES / BUILD / TESTS /
+      SUMMARY, status normalization, advisory-only (gate is the real authority)
+- [x] Completion vs failure detection: `ClaudeOutcome` (success/failed/timeout) + report
+      folded into task result and Telegram summaries
+- [x] Execution logging to `logs/claude.log` (start/outcome/exit/duration)
+- [x] Uncontrolled-execution guards: hard timeout, prompt-size cap (60k chars),
+      cwd-must-exist check, Windows `.cmd` handling
+- [x] 10 more tests (report parsing, worker outcome, run guards). Total **65 green**, ruff clean.
 
 ## Phase 4 — Terminal execution + Git safety  `[ ]`
 - [ ] Working-directory validation per project

@@ -17,6 +17,7 @@ from typing import Awaitable, Callable
 from app.ai.glue import GlueAI
 from app.claude.budget import ClaudeBudget
 from app.claude.prompts import build_task_prompt
+from app.claude.report import parse_report
 from app.claude.worker import ClaudeWorker
 from app.config import Settings
 from app.git.repo import GitRepo
@@ -178,6 +179,10 @@ class Orchestrator:
             )
             return False
 
+        # Advisory report from Claude (never the source of truth for completion —
+        # that's the Phase 7 quality gate. Used here for logging/summaries only).
+        report = result.report or parse_report(result.text)
+
         commit_hash = await repo.commit_all(f"{task.task_key}: {task.goal[:60]}")
         if commit_hash:
             await self.store.add_checkpoint(project.id, task.id, commit_hash,
@@ -185,19 +190,24 @@ class Orchestrator:
 
         await self.store.update_task(
             task.id, status=TaskStatus.COMPLETED.value,
-            result={"summary": result.text[:1000], "changed_files": changed,
-                    "commit": commit_hash},
+            result={"summary": report.summary or result.text[:800],
+                    "changed_files": changed,
+                    "claude_build": report.build, "claude_tests": report.tests,
+                    "commit": commit_hash, "duration_s": round(result.duration_s, 1)},
         )
         await self._log(
             project,
-            f"✅ {task.task_key} completed — {len(changed)} file(s), commit {commit_hash[:7] if commit_hash else 'n/a'}",
+            f"✅ {task.task_key} completed — {len(changed)} file(s), "
+            f"build={report.build}, tests={report.tests}, "
+            f"commit {commit_hash[:7] if commit_hash else 'n/a'}",
             task,
         )
+        summary = report.summary or result.text[:300]
         await self.notify(
             f"✅ *{task.task_key}* completed.\n"
-            f"Files changed: {len(changed)}\n"
+            f"Files changed: {len(changed)}  ·  build: {report.build}  ·  tests: {report.tests}\n"
             f"Commit: `{(commit_hash or 'n/a')[:7]}`\n\n"
-            f"_{result.text[:300]}_"
+            f"_{summary[:300]}_"
         )
         return True
 
