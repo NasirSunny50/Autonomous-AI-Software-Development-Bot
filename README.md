@@ -113,7 +113,13 @@ run.py          entrypoint
 ## Status & roadmap
 
 Built incrementally in 10 phases — see [`docs/ROADMAP.md`](docs/ROADMAP.md).
-Current: **Phase 1 (vertical slice)** in progress.
+**Phases 0–10 are implemented and tested** (94 unit/integration tests, ruff clean).
+Browser QA is real-proven (boots a dev server → headless Chromium → HTTP/console/
+screenshot). The only remaining item is the *stretch* auto-deploy goal, left as
+documented future work rather than an untested claim.
+
+To go live you supply: the Claude Code CLI (`@anthropic-ai/claude-code`) and a
+`.env` with your Telegram token + user id. Everything else runs on free tiers.
 
 ## Troubleshooting
 
