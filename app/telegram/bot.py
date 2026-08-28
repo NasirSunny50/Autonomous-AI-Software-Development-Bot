@@ -27,32 +27,30 @@ from app.orchestrator.core import Orchestrator
 from app.security.secrets import redact
 from app.state.models import ProjectStatus, TaskStatus
 from app.state.store import StateStore
+from app.ai.conversation import ConversationEngine
 from app.utils.logging import get_logger
-from app.utils.text import truncate
+from app.utils.text import derive_project_name, truncate
 
 log = get_logger("telegram")
 
 HELP = """\
 🤖 *AI Dev Bot*
 
-Send a requirement in plain language, or use:
+Just *talk to me normally* — no commands needed. For example:
+• _"Ekta ecommerce site banao"_ → I'll name it & start
+• _"kdur holo?"_ / _"ki obostha?"_ → progress update
+• _"login page ta ki hoise?"_ → I'll answer about the project
+• _"onno project e kaj koro"_ → switch project
 
-/new — start a new project
+When you ask me to build something, I'll confirm the name first, then go.
+
+Handy commands (optional):
 /workdir — set the folder to build the next project in
-/projects — list & switch project
-/status — current project & task
-/ask — ask about the active project
-/test — run the quality gate now
-/deploy — deploy to a free host (add `prod` for production)
-/logs — recent activity
-/retry — retry a failed task
-/rollback — revert to last checkpoint
-/autonomy — view autonomy level
+/projects · /switch — list / switch project
+/status · /logs — progress & recent activity
+/test · /retry · /rollback · /deploy — QA, retry, revert, deploy
 /pause · /resume · /stop — control execution
 /help — this message
-
-Example:
-_Build a modern e-commerce site with auth, product listing, cart and checkout._
 """
 
 
@@ -67,6 +65,8 @@ class TelegramBot:
         self._current_job: asyncio.Task | None = None
         self._digest_task: asyncio.Task | None = None
         self._pending_workdir: str | None = None
+        self._pending_project: dict | None = None
+        self.conversation: ConversationEngine | None = None
         self._pending_approvals: dict[str, asyncio.Future] = {}
 
     # ---- proactive notifier / approval (passed to the orchestrator) ----
@@ -337,22 +337,124 @@ class TelegramBot:
         text = (update.message.text or "").strip()
         if not text:
             return
-        if self._busy and not self._awaiting_requirement:
-            await update.message.reply_text(
-                "⏳ I'm working. Use /status, or /ask <question>.")
+        # Just came from /new -> the message IS the requirement.
+        if self._awaiting_requirement:
+            self._awaiting_requirement = False
+            await self._handle_intent(update, text, "new_project", "", "")
             return
-        self._awaiting_requirement = False
-        await self._begin_project(text)
+        # Natural conversation: understand intent, then act.
+        await update.message.chat.send_action("typing")
+        ctx = await self._chat_context()
+        result = await self.conversation.interpret(text, ctx)
+        await self._handle_intent(update, text, result["intent"],
+                                  result.get("project_name", ""), result.get("reply", ""))
+
+    async def _handle_intent(self, update: Update, text: str, intent: str,
+                             project_name: str, reply: str) -> None:
+        if intent == "new_project":
+            if self._busy:
+                await update.message.reply_text(
+                    "⏳ Ekhon ekta project cholche. Shesh hole notun ta dhorbo — "
+                    "majhe status jante 'kdur holo?' likho.")
+                return
+            name = project_name or derive_project_name(text)
+            self._pending_project = {"requirement": text, "name": name,
+                                     "target_dir": self._pending_workdir}
+            kb = InlineKeyboardMarkup([[
+                InlineKeyboardButton("✅ Start", callback_data="pj:start"),
+                InlineKeyboardButton("❌ Cancel", callback_data="pj:cancel"),
+            ]])
+            folder = f"\n📁 `{self._pending_workdir}`" if self._pending_workdir else ""
+            head = (reply + "\n\n") if reply else ""
+            await update.message.reply_text(
+                f"{head}🏗️ Project: *{name}*{folder}\n\nStart building? "
+                "(ba onno naam bolte paro)",
+                parse_mode=ParseMode.MARKDOWN, reply_markup=kb)
+        elif intent == "confirm":
+            if self._pending_project and not self._busy:
+                await self._start_pending(update.message.reply_text)
+            else:
+                await update.message.reply_text(
+                    reply or "Ekhon confirm korar kichu nei. Ki banate chao? 🙂")
+        elif intent == "cancel":
+            self._pending_project = None
+            await update.message.reply_text(reply or "Thik ache. 🙂")
+        elif intent == "status":
+            await self.cmd_status(update, None)
+        elif intent == "switch_project":
+            if not await self._try_switch(update, text + " " + project_name):
+                await update.message.reply_text(
+                    reply or "Kon project e jabo? Naam bolo, ba 'project list' likho.")
+        elif intent == "question":
+            answer = await self.orchestrator.answer_question(text)
+            await update.message.reply_text(truncate(redact(answer), 3500))
+        elif intent == "help":
+            await update.message.reply_text(HELP, parse_mode=ParseMode.MARKDOWN)
+        else:  # chitchat
+            await update.message.reply_text(reply or "🙂")
+
+    async def _try_switch(self, update: Update, text: str) -> bool:
+        low = text.lower()
+        for p in await self.store.list_projects():
+            if p.slug in low or (p.name and p.name.lower() in low):
+                await self.store.set_active_project(p.id)
+                await update.message.reply_text(
+                    f"▶️ Ekhon active: *{p.name}*", parse_mode=ParseMode.MARKDOWN)
+                return True
+        return False
+
+    async def _start_pending(self, reply_fn) -> None:
+        p = self._pending_project
+        self._pending_project = None
+        self._pending_workdir = None
+        await reply_fn(f"🚀 Shuru korchi: {p['name']}")
+        await self._begin_project(p["requirement"], name=p["name"],
+                                  target_dir=p["target_dir"])
+
+    async def _chat_context(self) -> dict:
+        project = await self.store.get_active_project()
+        projects = await self.store.list_projects()
+        ctx: dict = {"busy": self._busy, "projects": [p.name for p in projects][:10]}
+        if project:
+            tasks = await self.store.list_tasks(project.id)
+            done = sum(1 for t in tasks if t.status == TaskStatus.COMPLETED.value)
+            ctx.update(active_project=project.name, status=project.status,
+                       tasks_done=done, tasks_total=len(tasks))
+        return ctx
+
+    async def on_project_callback(self, update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
+        q = update.callback_query
+        await q.answer()
+        if not self._authorized(update):
+            return
+        action = (q.data or "pj:").split(":", 1)[1]
+        if action == "start":
+            if self._pending_project and not self._busy:
+                p = self._pending_project
+                self._pending_project = None
+                self._pending_workdir = None
+                await q.edit_message_text(f"🚀 Shuru korchi: {p['name']}")
+                await self._begin_project(p["requirement"], name=p["name"],
+                                          target_dir=p["target_dir"])
+            else:
+                await q.edit_message_text("Ekhon start korar kichu nei 🙂"
+                                          if not self._pending_project else "⏳ Already busy.")
+        else:
+            self._pending_project = None
+            await q.edit_message_text("❌ Cancel korlam.")
 
     # ---- background project launch ----
-    async def _begin_project(self, requirement: str) -> None:
+    async def _begin_project(self, requirement: str, name: str | None = None,
+                             target_dir: str | None = None) -> None:
         self._busy = True
-        target_dir = self._pending_workdir
-        self._pending_workdir = None
+        if target_dir is None:
+            target_dir = self._pending_workdir
+            self._pending_workdir = None
 
         async def _run() -> None:
             try:
-                await self.orchestrator.handle_requirement(requirement, target_dir=target_dir)
+                await self.orchestrator.handle_requirement(
+                    requirement, name=name, target_dir=target_dir)
             except asyncio.CancelledError:
                 await self.notify("🛑 Cancelled.")
                 raise
@@ -413,6 +515,8 @@ class TelegramBot:
     # ---- wiring ----
     def build(self, orchestrator: Orchestrator) -> Application:
         self.orchestrator = orchestrator
+        router = orchestrator.glue.router if orchestrator.glue else None
+        self.conversation = ConversationEngine(router)
         app = (Application.builder()
                .token(self.settings.telegram_bot_token)
                .post_init(self._post_init)
@@ -436,6 +540,7 @@ class TelegramBot:
         h(CommandHandler("rollback", self.cmd_rollback))
         h(CommandHandler("stop", self.cmd_stop))
         h(CallbackQueryHandler(self.on_callback, pattern=r"^ap:"))
+        h(CallbackQueryHandler(self.on_project_callback, pattern=r"^pj:"))
         h(MessageHandler(filters.TEXT & ~filters.COMMAND, self.on_text))
         self.app = app
         return app
