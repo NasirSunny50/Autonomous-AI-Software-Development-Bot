@@ -64,6 +64,7 @@ class TelegramBot:
         self._busy = False
         self._awaiting_requirement = False
         self._current_job: asyncio.Task | None = None
+        self._digest_task: asyncio.Task | None = None
         self._pending_approvals: dict[str, asyncio.Future] = {}
 
     # ---- proactive notifier / approval (passed to the orchestrator) ----
@@ -373,7 +374,9 @@ class TelegramBot:
 
     async def _post_init(self, app: Application) -> None:
         await self.store.init()
-        app.create_task(self._daily_digest_loop())
+        # asyncio.create_task (not app.create_task) so PTB doesn't warn about a
+        # task made before polling starts; keep a ref so it isn't GC'd.
+        self._digest_task = asyncio.create_task(self._daily_digest_loop())
         log.info("bot post-init complete; daily digest scheduled")
 
     # ---- wiring ----
