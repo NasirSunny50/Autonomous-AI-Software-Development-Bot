@@ -38,6 +38,7 @@ HELP = """\
 Send a requirement in plain language, or use:
 
 /new — start a new project
+/workdir — set the folder to build the next project in
 /projects — list & switch project
 /status — current project & task
 /ask — ask about the active project
@@ -65,6 +66,7 @@ class TelegramBot:
         self._awaiting_requirement = False
         self._current_job: asyncio.Task | None = None
         self._digest_task: asyncio.Task | None = None
+        self._pending_workdir: str | None = None
         self._pending_approvals: dict[str, asyncio.Future] = {}
 
     # ---- proactive notifier / approval (passed to the orchestrator) ----
@@ -138,6 +140,33 @@ class TelegramBot:
         else:
             self._awaiting_requirement = True
             await update.message.reply_text("📝 What do you want me to build?")
+
+    async def cmd_workdir(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if not await self._guard(update):
+            return
+        path = " ".join(context.args).strip().strip('"') if context.args else ""
+        if not path:
+            cur = self._pending_workdir or "(default: bot's workspaces/ folder)"
+            await update.message.reply_text(
+                f"Current target folder for the next project:\n`{cur}`\n\n"
+                "Set one with:\n/workdir F:\\path\\to\\your\\folder",
+                parse_mode=ParseMode.MARKDOWN)
+            return
+        from pathlib import Path
+        p = Path(path)
+        if not p.is_absolute():
+            await update.message.reply_text("⚠️ Please give an absolute path "
+                                            "(e.g. F:\\Personal_Passive_Income\\Rooftop Cricket).")
+            return
+        try:
+            p.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            await update.message.reply_text(f"❌ Can't use that folder: {exc}")
+            return
+        self._pending_workdir = str(p)
+        await update.message.reply_text(
+            f"✅ Next project will be built in:\n`{p}`\n\nNow send the requirement.",
+            parse_mode=ParseMode.MARKDOWN)
 
     async def cmd_status(self, update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
         if not await self._guard(update):
@@ -318,10 +347,12 @@ class TelegramBot:
     # ---- background project launch ----
     async def _begin_project(self, requirement: str) -> None:
         self._busy = True
+        target_dir = self._pending_workdir
+        self._pending_workdir = None
 
         async def _run() -> None:
             try:
-                await self.orchestrator.handle_requirement(requirement)
+                await self.orchestrator.handle_requirement(requirement, target_dir=target_dir)
             except asyncio.CancelledError:
                 await self.notify("🛑 Cancelled.")
                 raise
@@ -390,6 +421,7 @@ class TelegramBot:
         h(CommandHandler("start", self.cmd_start))
         h(CommandHandler("help", self.cmd_help))
         h(CommandHandler("new", self.cmd_new))
+        h(CommandHandler("workdir", self.cmd_workdir))
         h(CommandHandler("status", self.cmd_status))
         h(CommandHandler("projects", self.cmd_projects))
         h(CommandHandler("switch", self.cmd_switch))

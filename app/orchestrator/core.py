@@ -58,8 +58,7 @@ class Orchestrator:
         self.browser = browser
         self.request_approval = request_approval
         self.deployer = deployer
-        self.runner = ProjectCommandRunner(settings.workspaces_path)
-        self.gate = gate or QualityGate(self.runner)
+        self._gate = gate   # optional injected gate (tests); else built per-project
         self.policy = ApprovalPolicy(settings.autonomy_level)
         self.budget = ClaudeBudget(
             store, max_per_day=settings.claude_max_calls_per_day,
@@ -69,7 +68,8 @@ class Orchestrator:
         self._paused: set[int] = set()
 
     # ================= project entry =================
-    async def handle_requirement(self, requirement: str, name: str | None = None) -> Project:
+    async def handle_requirement(self, requirement: str, name: str | None = None,
+                                 target_dir: str | None = None) -> Project:
         # Low-autonomy: starting a project is a "major" action -> confirm first.
         if self.policy.needs_approval(ActionRisk.NORMAL, major=True) and self.request_approval:
             ok = await self.request_approval(
@@ -86,8 +86,12 @@ class Orchestrator:
         features = parsed.get("features", [])
 
         slug = await self._unique_slug(slugify(name))
-        workspace = self.settings.workspaces_path / slug
-        validate_workspace(workspace, self.settings.workspaces_path)
+        if target_dir:
+            # User explicitly designated a folder (e.g. via /workdir). Build there.
+            workspace = Path(target_dir).expanduser().resolve()
+        else:
+            workspace = self.settings.workspaces_path / slug
+            validate_workspace(workspace, self.settings.workspaces_path)
         workspace.mkdir(parents=True, exist_ok=True)
 
         project = await self.store.create_project(
@@ -132,8 +136,7 @@ class Orchestrator:
     # ================= one task =================
     async def execute_task(self, project: Project, task: Task) -> bool:
         assert project.id is not None and task.id is not None
-        workspace = Path(project.workspace_path)
-        validate_workspace(workspace, self.settings.workspaces_path)
+        workspace = Path(project.workspace_path)   # project's registered folder
         repo = GitRepo(workspace)
 
         if not await self._budget_ok(project, task):
@@ -306,7 +309,10 @@ class Orchestrator:
         return True
 
     async def _run_gate(self, workspace: Path) -> GateResult:
-        return await self.gate.run(workspace, browser=self.browser)
+        # Gate scoped to THIS project's own directory — so commands are validated
+        # against the project folder itself, allowing projects in any location.
+        gate = self._gate or QualityGate(ProjectCommandRunner(workspace))
+        return await gate.run(workspace, browser=self.browser)
 
     async def _collect_evidence(self, gate: GateResult, repo: GitRepo) -> str:
         diff = await repo.short_diff()

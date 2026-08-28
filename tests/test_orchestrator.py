@@ -74,6 +74,28 @@ async def test_full_slice_creates_builds_commits(tmp_path):
     assert "Project Started" in joined and "completed" in joined
 
 
+async def test_target_dir_builds_outside_workspaces(tmp_path):
+    s = _settings(tmp_path)
+    s.ensure_dirs()
+    store = StateStore(s.db_path)
+    await store.init()
+
+    external = tmp_path / "elsewhere" / "Rooftop Cricket"   # NOT under workspaces/
+
+    async def notify(_m):
+        pass
+
+    orch = Orchestrator(s, store, FakeWorker(), notify=notify, glue=None)
+    project = await orch.handle_requirement("build a scoring app",
+                                            target_dir=str(external))
+    # built in the exact designated folder, not workspaces/<slug>
+    assert Path(project.workspace_path) == external.resolve()
+    assert (external / "app.py").exists()
+    assert (external / ".git").exists()
+    tasks = await store.list_tasks(project.id)
+    assert len(tasks) == 1 and tasks[0].status == "completed"
+
+
 async def test_budget_cap_pauses_instead_of_running(tmp_path):
     from datetime import date
 
