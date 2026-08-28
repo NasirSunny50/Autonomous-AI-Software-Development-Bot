@@ -189,9 +189,11 @@ class TelegramBot:
             return
         tasks = await self.store.list_tasks(project.id)
         done = sum(1 for t in tasks if t.status == TaskStatus.COMPLETED.value)
+        live = self.orchestrator.live_status_text()
+        live_line = f"\n{live}" if live else ("\n💤 Ekhon idle" if not self._busy else "")
         await self._reply(update,
             f"*{project.name}*  `{project.slug}`\nStatus: {project.status}\n"
-            f"Tasks: {done}/{len(tasks)}\nWorking: {'yes' if self._busy else 'idle'}")
+            f"Tasks: {done}/{len(tasks)}{live_line}")
 
     async def cmd_projects(self, update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
         if not await self._guard(update):

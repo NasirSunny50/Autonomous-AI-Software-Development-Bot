@@ -13,7 +13,6 @@ Loop per task:
 """
 from __future__ import annotations
 
-import asyncio
 import time
 from pathlib import Path
 from typing import Awaitable, Callable
@@ -68,6 +67,7 @@ class Orchestrator:
         self._project_calls: dict[int, int] = {}
         self._autofixes: dict[int, int] = {}
         self._paused: set[int] = set()
+        self._live: dict | None = None
 
     # ================= project entry =================
     async def handle_requirement(self, requirement: str, name: str | None = None,
@@ -158,6 +158,7 @@ class Orchestrator:
                                             f"before {task.task_key}")
 
         await self.notify(f"👨‍💻 Claude Code working on *{task.task_key}*…")
+        self._set_live(project, task, "coding 👨‍💻")
         prompt = await self._build_prompt(project, task)
         result = await self._claude(project, prompt)
         if result is None:
@@ -168,11 +169,13 @@ class Orchestrator:
 
         # --- deterministic quality gate = the real authority ---
         await self.notify("🧪 Running quality gate…")
+        self._set_live(project, task, "testing 🧪")
         gate = await self._run_gate(workspace)
 
         attempts = 0
         while not gate.passed and attempts < self.settings.max_retries:
             attempts += 1
+            self._set_live(project, task, f"auto-fix {attempts} 🔧")
             fails = ", ".join(c.name for c in gate.failures())
             await self.notify(f"❌ Gate failed ({fails}). 🔧 Auto-fix {attempts}/"
                               f"{self.settings.max_retries}…")
@@ -195,6 +198,7 @@ class Orchestrator:
     async def _complete_task(self, project: Project, task: Task, repo: GitRepo,
                              result, gate: GateResult) -> bool:
         assert project.id is not None and task.id is not None
+        self._clear_live()
         report = result.report or parse_report(result.text)
         changed = await repo.changed_files()
         commit = await repo.commit_all(f"{task.task_key}: {task.goal[:60]}")
@@ -223,6 +227,7 @@ class Orchestrator:
         return True
 
     async def _handle_hard_failure(self, project, task, repo, checkpoint, error) -> bool:
+        self._clear_live()
         await self.store.update_task(task.id, status=TaskStatus.FAILED.value,
                                      result={"error": error})
         await self._log(project, f"❌ {task.task_key} hard-failed: {error}", task)
@@ -233,6 +238,7 @@ class Orchestrator:
         return False
 
     async def _handle_exhausted(self, project, task, repo, checkpoint, gate: GateResult) -> bool:
+        self._clear_live()
         await self.store.update_task(task.id, status=TaskStatus.NEEDS_REVIEW.value,
                                      retry_count=self.settings.max_retries,
                                      result={"gate": gate.summary()})
@@ -251,6 +257,7 @@ class Orchestrator:
     # ================= finalize =================
     async def _finalize(self, project: Project) -> None:
         assert project.id is not None
+        self._clear_live()
         await self.notify("🏁 All tasks done — running final QA…")
         gate = await self._run_gate(Path(project.workspace_path))
         tasks = await self.store.list_tasks(project.id)
@@ -298,34 +305,22 @@ class Orchestrator:
             return None
         await self.budget.record()
         self._project_calls[project.id] = self._project_calls.get(project.id, 0) + 1
-        return await self._with_heartbeat(
-            self.worker.run_task(prompt, cwd=project.workspace_path),
-            "👨‍💻 Claude Code")
+        return await self.worker.run_task(prompt, cwd=project.workspace_path)
 
-    async def _with_heartbeat(self, coro, label: str, interval: float = 45.0):
-        """Await `coro` while sending a periodic 'still working' update, so the
-        owner can see it's alive during long Claude/build steps."""
-        start = time.monotonic()
-        stop = asyncio.Event()
+    # ---- live progress (shown on demand, not pushed as spam) ----
+    def _set_live(self, project: Project, task: Task, phase: str) -> None:
+        self._live = {"project": project.name, "task": task.task_key,
+                      "phase": phase, "since": time.monotonic()}
 
-        async def beat():
-            while True:
-                try:
-                    await asyncio.wait_for(stop.wait(), timeout=interval)
-                    return
-                except asyncio.TimeoutError:
-                    el = int(time.monotonic() - start)
-                    await self.notify(f"⏳ {label} cholche… ({el // 60}m {el % 60}s)")
+    def _clear_live(self) -> None:
+        self._live = None
 
-        bt = asyncio.create_task(beat())
-        try:
-            return await coro
-        finally:
-            stop.set()
-            try:
-                await bt
-            except Exception:  # pragma: no cover
-                pass
+    def live_status_text(self) -> str:
+        if not self._live:
+            return ""
+        el = int(time.monotonic() - self._live["since"])
+        return (f"🏗️ {self._live['project']} — {self._live['task']} · "
+                f"{self._live['phase']} · {el // 60}m {el % 60}s cholche")
 
     async def _budget_ok_light(self, project: Project) -> bool:
         used = self._project_calls.get(project.id, 0)
@@ -341,8 +336,7 @@ class Orchestrator:
         # Gate scoped to THIS project's own directory — so commands are validated
         # against the project folder itself, allowing projects in any location.
         gate = self._gate or QualityGate(ProjectCommandRunner(workspace))
-        return await self._with_heartbeat(
-            gate.run(workspace, browser=self.browser), "🧪 Quality gate")
+        return await gate.run(workspace, browser=self.browser)
 
     async def _collect_evidence(self, gate: GateResult, repo: GitRepo) -> str:
         diff = await repo.short_diff()
@@ -395,8 +389,10 @@ class Orchestrator:
         logs = await self.store.recent_logs(project.id, limit=10)
         tasks = await self.store.list_tasks(project.id)
         done = sum(1 for t in tasks if t.status == TaskStatus.COMPLETED.value)
+        live = self.live_status_text()
+        live_line = f"Right now: {live}\n" if live else "Right now: idle (kaj cholche na)\n"
         context = (f"Project: {project.name} ({project.status})\n"
-                   f"Tasks: {done}/{len(tasks)} done\n{memory.compact_text()}\n"
+                   f"Tasks: {done}/{len(tasks)} done\n{live_line}{memory.compact_text()}\n"
                    f"Recent activity:\n" + "\n".join(logs))
         if self.glue is None:
             return context
