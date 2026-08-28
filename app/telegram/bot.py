@@ -64,6 +64,7 @@ class TelegramBot:
         self._awaiting_requirement = False
         self._current_job: asyncio.Task | None = None
         self._digest_task: asyncio.Task | None = None
+        self._autonomy_task: asyncio.Task | None = None
         self._pending_workdir: str | None = None
         self._pending_project: dict | None = None
         self.conversation: ConversationEngine | None = None
@@ -324,7 +325,13 @@ class TelegramBot:
         if self._current_job and not self._current_job.done():
             self._current_job.cancel()
         self._busy = False
-        await update.message.reply_text("🛑 Stopped. State saved; nothing corrupted.")
+        # Pause the active project so the autonomy loop won't immediately resume it.
+        project = await self.store.get_active_project()
+        if project:
+            self.orchestrator._paused.add(project.id)
+            await self.store.update_project_status(project.id, ProjectStatus.PAUSED.value)
+        await update.message.reply_text(
+            "🛑 Stopped. State saved. 'resume koro' likhle abar cholbo.")
 
     async def on_callback(self, update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
         q = update.callback_query
@@ -527,19 +534,42 @@ class TelegramBot:
         # asyncio.create_task (not app.create_task) so PTB doesn't warn about a
         # task made before polling starts; keep a ref so it isn't GC'd.
         self._digest_task = asyncio.create_task(self._daily_digest_loop())
-        log.info("bot post-init complete; daily digest scheduled")
-        # Nudge about any unfinished work so it's easy to resume after a restart.
-        try:
-            project = await self.store.get_active_project()
-            if project and project.status == ProjectStatus.IN_PROGRESS.value:
-                tasks = await self.store.list_tasks(project.id)
-                if any(t.status in (TaskStatus.IN_PROGRESS.value, TaskStatus.PENDING.value)
-                       for t in tasks):
-                    await self.notify(
-                        f"⏳ Unfinished project ache: *{project.name}*.\n"
-                        "Continue korte likho: *resume koro* (ba /resume)")
-        except Exception as exc:  # pragma: no cover
-            log.warning("startup notice failed: %s", exc)
+        # The autonomous supervisor: takes ownership and drives unfinished work.
+        self._autonomy_task = asyncio.create_task(self._autonomy_loop())
+        log.info("bot post-init complete; digest + autonomy loop running")
+
+    async def _autonomy_loop(self) -> None:
+        """Background supervisor. At HIGH autonomy the bot takes ownership: it
+        finds any unfinished project and drives it to completion on its own
+        (self-healing along the way), with no /resume needed. It only escalates
+        when a task genuinely can't be fixed (that project goes 'blocked' and is
+        no longer auto-picked, so there's never a runaway loop). Chat keeps working
+        the whole time because this runs in the background."""
+        await asyncio.sleep(6)  # let startup settle
+        while True:
+            try:
+                if not self._busy and self.settings.autonomy_level == "high":
+                    project = await self._next_autonomous_project()
+                    if project:
+                        await self.notify(f"🤖 Nije kaj continue korchi: *{project.name}*")
+                        self._run_bg(self.orchestrator.run_project(project))
+            except Exception as exc:  # pragma: no cover
+                log.warning("autonomy loop error: %s", exc)
+            await asyncio.sleep(30)
+
+    async def _next_autonomous_project(self):
+        for p in await self.store.list_projects():
+            if p.id in self.orchestrator._paused:
+                continue
+            if p.status != ProjectStatus.IN_PROGRESS.value:
+                continue
+            tasks = await self.store.list_tasks(p.id)
+            if any(t.status in (TaskStatus.PENDING.value, TaskStatus.IN_PROGRESS.value)
+                   for t in tasks):
+                if not p.is_active:
+                    await self.store.set_active_project(p.id)
+                return p
+        return None
 
     # ---- wiring ----
     def build(self, orchestrator: Orchestrator) -> Application:
