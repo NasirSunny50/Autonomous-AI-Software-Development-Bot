@@ -85,10 +85,13 @@ class TelegramBot:
             InlineKeyboardButton("✅ Approve", callback_data=f"ap:{token}:1"),
             InlineKeyboardButton("❌ Reject", callback_data=f"ap:{token}:0"),
         ]])
-        await self.app.bot.send_message(
-            self.settings.telegram_allowed_user_id,
-            f"🔐 *Approval needed*\n\n{redact(text)}", parse_mode=ParseMode.MARKDOWN,
-            reply_markup=kb)
+        chat = self.settings.telegram_allowed_user_id
+        body = f"🔐 Approval needed\n\n{redact(text)}"
+        try:
+            await self.app.bot.send_message(chat, f"🔐 *Approval needed*\n\n{redact(text)}",
+                                            parse_mode=ParseMode.MARKDOWN, reply_markup=kb)
+        except Exception:
+            await self.app.bot.send_message(chat, body, reply_markup=kb)
         try:
             return await asyncio.wait_for(fut, timeout=3600)
         except asyncio.TimeoutError:
@@ -104,6 +107,16 @@ class TelegramBot:
                 await self.app.bot.send_message(chat_id, text)
             except Exception as exc:  # pragma: no cover
                 log.warning("send failed: %s", exc)
+
+    async def _reply(self, update: Update, text: str, reply_markup=None) -> None:
+        """Reply with Markdown, falling back to plain text if it fails to parse
+        (dynamic content like project names can break Markdown entities)."""
+        text = truncate(redact(text))
+        try:
+            await update.message.reply_text(text, parse_mode=ParseMode.MARKDOWN,
+                                            reply_markup=reply_markup)
+        except Exception:
+            await update.message.reply_text(text, reply_markup=reply_markup)
 
     # ---- auth ----
     def _authorized(self, update: Update) -> bool:
@@ -147,10 +160,9 @@ class TelegramBot:
         path = " ".join(context.args).strip().strip('"') if context.args else ""
         if not path:
             cur = self._pending_workdir or "(default: bot's workspaces/ folder)"
-            await update.message.reply_text(
+            await self._reply(update,
                 f"Current target folder for the next project:\n`{cur}`\n\n"
-                "Set one with:\n/workdir F:\\path\\to\\your\\folder",
-                parse_mode=ParseMode.MARKDOWN)
+                "Set one with:\n/workdir F:\\path\\to\\your\\folder")
             return
         from pathlib import Path
         p = Path(path)
@@ -164,9 +176,8 @@ class TelegramBot:
             await update.message.reply_text(f"❌ Can't use that folder: {exc}")
             return
         self._pending_workdir = str(p)
-        await update.message.reply_text(
-            f"✅ Next project will be built in:\n`{p}`\n\nNow send the requirement.",
-            parse_mode=ParseMode.MARKDOWN)
+        await self._reply(update,
+            f"✅ Next project will be built in:\n`{p}`\n\nNow send the requirement.")
 
     async def cmd_status(self, update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
         if not await self._guard(update):
@@ -177,10 +188,9 @@ class TelegramBot:
             return
         tasks = await self.store.list_tasks(project.id)
         done = sum(1 for t in tasks if t.status == TaskStatus.COMPLETED.value)
-        await update.message.reply_text(
+        await self._reply(update,
             f"*{project.name}*  `{project.slug}`\nStatus: {project.status}\n"
-            f"Tasks: {done}/{len(tasks)}\nWorking: {'yes' if self._busy else 'idle'}",
-            parse_mode=ParseMode.MARKDOWN)
+            f"Tasks: {done}/{len(tasks)}\nWorking: {'yes' if self._busy else 'idle'}")
 
     async def cmd_projects(self, update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
         if not await self._guard(update):
@@ -193,7 +203,7 @@ class TelegramBot:
         for p in projects:
             lines.append(f"{'▶️' if p.is_active else '  '} `{p.slug}` — {p.name} ({p.status})")
         lines.append("\nSwitch with: /switch <slug>")
-        await update.message.reply_text("\n".join(lines), parse_mode=ParseMode.MARKDOWN)
+        await self._reply(update, "\n".join(lines))
 
     async def cmd_switch(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not await self._guard(update):
@@ -204,8 +214,7 @@ class TelegramBot:
             await update.message.reply_text("Usage: /switch <slug> (see /projects)")
             return
         await self.store.set_active_project(project.id)
-        await update.message.reply_text(f"▶️ Active project: *{project.name}*",
-                                        parse_mode=ParseMode.MARKDOWN)
+        await self._reply(update, f"▶️ Active project: *{project.name}*")
 
     async def cmd_ask(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not await self._guard(update):
@@ -366,10 +375,9 @@ class TelegramBot:
             ]])
             folder = f"\n📁 `{self._pending_workdir}`" if self._pending_workdir else ""
             head = (reply + "\n\n") if reply else ""
-            await update.message.reply_text(
+            await self._reply(update,
                 f"{head}🏗️ Project: *{name}*{folder}\n\nStart building? "
-                "(ba onno naam bolte paro)",
-                parse_mode=ParseMode.MARKDOWN, reply_markup=kb)
+                "(ba onno naam bolte paro)", reply_markup=kb)
         elif intent == "confirm":
             if self._pending_project and not self._busy:
                 await self._start_pending(update.message.reply_text)
@@ -398,8 +406,7 @@ class TelegramBot:
         for p in await self.store.list_projects():
             if p.slug in low or (p.name and p.name.lower() in low):
                 await self.store.set_active_project(p.id)
-                await update.message.reply_text(
-                    f"▶️ Ekhon active: *{p.name}*", parse_mode=ParseMode.MARKDOWN)
+                await self._reply(update, f"▶️ Ekhon active: *{p.name}*")
                 return True
         return False
 
@@ -505,6 +512,16 @@ class TelegramBot:
             target += timedelta(days=1)
         return (target - now).total_seconds()
 
+    async def on_error(self, update: object, context) -> None:
+        """Catch-all so a single handler error never crashes the bot."""
+        log.error("handler error: %s", context.error)
+        try:
+            if isinstance(update, Update) and update.effective_message:
+                await update.effective_message.reply_text(
+                    "⚠️ Ekta gondogol holo, but ami thik achi. Abar try koro.")
+        except Exception:  # pragma: no cover
+            pass
+
     async def _post_init(self, app: Application) -> None:
         await self.store.init()
         # asyncio.create_task (not app.create_task) so PTB doesn't warn about a
@@ -542,5 +559,6 @@ class TelegramBot:
         h(CallbackQueryHandler(self.on_callback, pattern=r"^ap:"))
         h(CallbackQueryHandler(self.on_project_callback, pattern=r"^pj:"))
         h(MessageHandler(filters.TEXT & ~filters.COMMAND, self.on_text))
+        app.add_error_handler(self.on_error)
         self.app = app
         return app
