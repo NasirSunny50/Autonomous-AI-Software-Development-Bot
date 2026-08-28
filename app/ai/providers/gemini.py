@@ -20,7 +20,7 @@ _COOLDOWN_S = 60.0
 class GeminiProvider(AIProvider):
     name = "gemini"
 
-    def __init__(self, api_key, model, timeout=45.0, transport=None):
+    def __init__(self, api_key, model, timeout=30.0, transport=None):
         super().__init__(api_key, model, timeout, transport)
         # One key, one or more models (comma-separated).
         self.models = [m.strip() for m in str(model).split(",") if m.strip()] or [model]
