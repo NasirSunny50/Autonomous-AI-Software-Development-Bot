@@ -14,6 +14,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Awaitable, Callable
 
+from app.ai.glue import GlueAI
 from app.claude.budget import ClaudeBudget
 from app.claude.prompts import build_task_prompt
 from app.claude.worker import ClaudeWorker
@@ -37,11 +38,13 @@ async def _noop(_: str) -> None:
 
 class Orchestrator:
     def __init__(self, settings: Settings, store: StateStore,
-                 worker: ClaudeWorker, notify: Notifier | None = None):
+                 worker: ClaudeWorker, notify: Notifier | None = None,
+                 glue: GlueAI | None = None):
         self.settings = settings
         self.store = store
         self.worker = worker
         self.notify = notify or _noop
+        self.glue = glue
         self.budget = ClaudeBudget(
             store,
             max_per_day=settings.claude_max_calls_per_day,
@@ -57,7 +60,16 @@ class Orchestrator:
         Phase 1: create workspace + git, register a single bootstrap task, and
         execute it end-to-end. (Full AI planning arrives in Phase 3.)
         """
-        name = name or derive_project_name(requirement)
+        # Cheap, free-model glue: turn the plain-language requirement into a
+        # structured name / stack / features. Deterministic fallback if no free
+        # provider is configured, so this never costs anything and never blocks.
+        parsed = {"name": "", "tech_stack": "", "features": []}
+        if self.glue is not None:
+            parsed = await self.glue.parse_requirement(requirement)
+
+        name = name or parsed.get("name") or derive_project_name(requirement)
+        tech_stack = parsed.get("tech_stack", "")
+        features = parsed.get("features", [])
         slug = await self._unique_slug(slugify(name))
         workspace = self.settings.workspaces_path / slug
         # Guard: the workspace must live under the managed workspaces root.
@@ -70,6 +82,13 @@ class Orchestrator:
         )
         await self.store.set_active_project(project.id)  # type: ignore[arg-type]
         await self.store.update_project_status(project.id, ProjectStatus.IN_PROGRESS.value)
+        if tech_stack:
+            await self.store.update_project_tech_stack(project.id, tech_stack)
+            project.tech_stack = tech_stack
+        # Seed compact project memory (used later to keep AI context small).
+        await self.store.update_project_memory(project.id, {
+            "tech_stack": tech_stack, "features": features, "known_issues": [],
+        })
 
         repo = GitRepo(workspace,
                        author_name="AI Dev Bot",

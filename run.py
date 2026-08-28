@@ -11,6 +11,8 @@ from __future__ import annotations
 import asyncio
 import sys
 
+from app.ai.factory import build_router
+from app.ai.glue import GlueAI
 from app.claude.worker import ClaudeWorker
 from app.config import get_settings
 from app.orchestrator.core import Orchestrator
@@ -54,8 +56,12 @@ def main() -> int:
         command=settings.claude_command,
         timeout=settings.claude_timeout_seconds,
     )
+    router = build_router(settings)
+    glue = GlueAI(router)
+    log.info("Free providers configured: %s", router.configured() or "none")
+
     bot = TelegramBot(settings, store)
-    orchestrator = Orchestrator(settings, store, worker, notify=bot.notify)
+    orchestrator = Orchestrator(settings, store, worker, notify=bot.notify, glue=glue)
     application = bot.build(orchestrator)
 
     log.info("Bot starting (polling)…")

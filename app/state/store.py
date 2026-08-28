@@ -144,6 +144,12 @@ class StateStore:
                              (status, now_iso(), project_id))
             await db.commit()
 
+    async def update_project_tech_stack(self, project_id: int, tech_stack: str) -> None:
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("UPDATE projects SET tech_stack=?, updated_at=? WHERE id=?",
+                             (tech_stack, now_iso(), project_id))
+            await db.commit()
+
     async def update_project_memory(self, project_id: int, memory: dict) -> None:
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute("UPDATE projects SET memory_json=?, updated_at=? WHERE id=?",

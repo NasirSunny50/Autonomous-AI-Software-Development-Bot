@@ -29,11 +29,15 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done & tested
 - [x] 30 unit tests green (process, state, git, security, text, claude-parse); ruff clean
 - [ ] **Manual E2E** — needs owner to: install Claude Code CLI, create `.env` (token + user id). Then send a requirement in Telegram.
 
-## Phase 2 — Free AI provider abstraction  `[ ]`
-- [ ] `AIProvider` base + Gemini / Groq / OpenRouter implementations (httpx, async)
-- [ ] Deterministic router with health checks + free-only fallback chain
-- [ ] `token_manager.py`: per-task call budgets + Claude-call caps; pause instead of paying
-- [ ] Used for: log→digest, error triage, NL→requirement JSON
+## Phase 2 — Free AI provider abstraction  `[x]`
+- [x] `AIProvider` base + Gemini / Groq / OpenRouter (httpx, async, injectable transport)
+- [x] Deterministic router with health checks + cooldowns + free-only fallback chain
+- [x] `token_manager.py`: per-task call budgets + response cache (Claude money-cap is separate)
+- [x] `glue.py`: log→digest, error triage, NL→requirement JSON — each with a deterministic
+      fallback so no free provider configured ⇒ still works, still $0
+- [x] Wired into orchestrator: requirement → free-model parse → tech_stack/features → project memory
+- [x] 25 more unit + integration tests (providers via MockTransport, router fallback, glue,
+      full orchestrator slice with fake worker). Total **55 tests green**, ruff clean.
 
 ## Phase 3 — Claude Code integration (full)  `[ ]`
 - [ ] Structured coding-task templates (goal / requirements / AC / relevant files / instructions)
