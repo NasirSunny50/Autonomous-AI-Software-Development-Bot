@@ -41,9 +41,12 @@ class Settings(BaseSettings):
     gemini_api_key: str = ""
     groq_api_key: str = ""
     openrouter_api_key: str = ""
+    ollama_api_key: str = ""
     gemini_model: str = "gemini-2.0-flash"
     groq_model: str = "llama-3.3-70b-versatile"
     openrouter_model: str = "meta-llama/llama-3.3-70b-instruct:free"
+    ollama_model: str = "gpt-oss:120b"
+    ollama_base_url: str = "https://ollama.com/v1"
 
     # ---- Behaviour ----
     autonomy_level: Literal["low", "medium", "high"] = "high"
@@ -95,6 +98,8 @@ class Settings(BaseSettings):
             names.append("groq")
         if self.openrouter_api_key:
             names.append("openrouter")
+        if self.ollama_api_key:
+            names.append("ollama")
         return names
 
     def ensure_dirs(self) -> None:

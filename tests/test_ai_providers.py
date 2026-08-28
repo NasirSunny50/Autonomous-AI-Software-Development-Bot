@@ -40,6 +40,23 @@ async def test_provider_no_key():
     assert not r.ok and "no api key" in (r.error or "")
 
 
+def _gemini_multi_tp():
+    def handler(request):
+        # modelA is rate-limited; modelB succeeds -> one key, two models.
+        if "modelA" in request.url.path:
+            return httpx.Response(429, text="quota")
+        return httpx.Response(200, json={
+            "candidates": [{"content": {"parts": [{"text": "ok-B"}]}}]})
+    return httpx.MockTransport(handler)
+
+
+async def test_gemini_multi_model_fallback():
+    p = GeminiProvider("key", "modelA, modelB", transport=_gemini_multi_tp())
+    r = await p.complete("hi")
+    assert r.ok and r.text == "ok-B" and r.model == "modelB"
+    assert p.models == ["modelA", "modelB"]
+
+
 async def test_groq_success():
     p = GroqProvider("key", "llama", transport=_openai_tp(text="groq-reply"))
     r = await p.complete("hi", system="be terse")
@@ -65,3 +82,20 @@ async def test_openai_compat_rate_limited():
     p = GroqProvider("key", "m", transport=_openai_tp(status=429))
     r = await p.complete("hi")
     assert not r.ok and r.rate_limited
+
+
+async def test_ollama_success_and_base_url():
+    from app.ai.providers.ollama import OllamaProvider
+    captured = {}
+
+    def handler(request):
+        captured["url"] = str(request.url)
+        captured["auth"] = request.headers.get("authorization")
+        return httpx.Response(200, json={"choices": [{"message": {"content": "oss"}}]})
+
+    p = OllamaProvider("secret", "gpt-oss:120b", base_url="https://ollama.com/v1/",
+                       transport=httpx.MockTransport(handler))
+    r = await p.complete("hi")
+    assert r.ok and r.text == "oss" and r.provider == "ollama"
+    assert captured["auth"] == "Bearer secret"
+    assert captured["url"] == "https://ollama.com/v1/chat/completions"

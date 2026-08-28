@@ -21,9 +21,10 @@ from app.utils.logging import get_logger
 log = get_logger("ai")
 
 _ORDER: dict[str, list[str]] = {
-    "simple": ["groq", "gemini", "openrouter"],
-    "normal": ["gemini", "groq", "openrouter"],
-    "complex": ["gemini", "openrouter", "groq"],
+    # fast first for trivial glue; big hosted model first for hard reasoning.
+    "simple": ["groq", "gemini", "ollama", "openrouter"],
+    "normal": ["gemini", "ollama", "groq", "openrouter"],
+    "complex": ["ollama", "gemini", "openrouter", "groq"],
 }
 _COOLDOWN_S = 60.0
 
