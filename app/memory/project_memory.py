@@ -20,6 +20,7 @@ class ProjectMemory:
     known_issues: list[str] = field(default_factory=list)
     recent_changes: list[str] = field(default_factory=list)
     test_status: str = "unknown"
+    deploy_url: str = ""
 
     @classmethod
     def from_json(cls, raw: str | None) -> "ProjectMemory":

@@ -42,6 +42,7 @@ Send a requirement in plain language, or use:
 /status — current project & task
 /ask — ask about the active project
 /test — run the quality gate now
+/deploy — deploy to a free host (add `prod` for production)
 /logs — recent activity
 /retry — retry a failed task
 /rollback — revert to last checkpoint
@@ -257,6 +258,16 @@ class TelegramBot:
         await update.message.reply_text(f"🔁 Retrying {len(stuck)} task(s)…")
         self._run_bg(self.orchestrator.run_project(project))
 
+    async def cmd_deploy(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if not await self._guard(update):
+            return
+        project = await self.store.get_active_project()
+        if not project:
+            await update.message.reply_text("No active project.")
+            return
+        prod = bool(context.args) and context.args[0].lower() in ("prod", "production")
+        self._run_bg(self.orchestrator.deploy_project(project, prod=prod))
+
     async def cmd_rollback(self, update: Update, _: ContextTypes.DEFAULT_TYPE) -> None:
         if not await self._guard(update):
             return
@@ -386,6 +397,7 @@ class TelegramBot:
         h(CommandHandler("pause", self.cmd_pause))
         h(CommandHandler("resume", self.cmd_resume))
         h(CommandHandler("retry", self.cmd_retry))
+        h(CommandHandler("deploy", self.cmd_deploy))
         h(CommandHandler("rollback", self.cmd_rollback))
         h(CommandHandler("stop", self.cmd_stop))
         h(CallbackQueryHandler(self.on_callback, pattern=r"^ap:"))

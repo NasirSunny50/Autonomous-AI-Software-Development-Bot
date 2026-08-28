@@ -15,9 +15,11 @@ from app.ai.glue import GlueAI
 from app.browser.playwright_qa import BrowserQA, playwright_available
 from app.claude.worker import ClaudeWorker
 from app.config import get_settings
+from app.deploy.factory import build_deployer
 from app.orchestrator.core import Orchestrator
 from app.state.store import StateStore
 from app.telegram.bot import TelegramBot
+from app.testing.commands import ProjectCommandRunner
 from app.utils.logging import get_logger, init_logging
 
 
@@ -61,10 +63,13 @@ def main() -> int:
     browser = BrowserQA(settings.logs_path) if playwright_available() else None
     print(f" Browser QA       : {'playwright ready' if browser else 'disabled (no playwright)'}")
 
+    deployer = build_deployer(settings, ProjectCommandRunner(settings.workspaces_path))
+    print(f" Auto-deploy      : {deployer.name if deployer else 'disabled'}")
+
     bot = TelegramBot(settings, store)
     orchestrator = Orchestrator(
         settings, store, worker, notify=bot.notify, glue=glue,
-        browser=browser, request_approval=bot.request_approval,
+        browser=browser, request_approval=bot.request_approval, deployer=deployer,
     )
     application = bot.build(orchestrator)
 

@@ -88,8 +88,10 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done & tested
 - [x] Full E2E spine: requirement → plan → build → gate → self-heal → commit → final report
 - [x] Daily digest scheduler (`DAILY_UPDATE_TIME`, dependency-free asyncio loop)
 - [x] Q&A over project state (`/ask`, uses memory + logs, free-model)
-- [ ] (Stretch, free) auto-deploy to a free host + live preview URL — **documented as future work**;
-      not implemented so as not to claim an untested capability
+- [x] **Auto-deploy to a free host + live preview URL** — `app/deploy/` provider
+      abstraction (Vercel / Cloudflare Pages / Surge), opt-in via `.env`, tokens passed
+      via env only (never logged), gated by the autonomy policy (prod always asks),
+      live URL reported to Telegram and stored in project memory. `/deploy [prod]` command.
 
 ---
 

@@ -77,12 +77,29 @@ python run.py
 /projects  list & switch project        /retry     retry the failed task
 /status    current project & task       /test      run the quality gate now
 /logs      recent activity             /rollback  revert to last checkpoint
-/autonomy  view/set autonomy level
+/ask       ask about the project       /deploy    deploy to a free host
+/autonomy  view/set autonomy level     /switch    switch active project
 ```
 You can also just type a requirement in plain language, e.g.
 *"Build a modern e-commerce site with auth, product listing, cart and checkout."*
 
 ---
+
+## Auto-deploy (optional, free hosts)
+
+After a project passes final QA, the bot can publish it and send you a **live URL**.
+It's opt-in — set `DEPLOY_PROVIDER` and one token in `.env`:
+
+| Provider | Best for | Token(s) |
+|----------|----------|----------|
+| `vercel` | Next.js / SSR / most frameworks | `VERCEL_TOKEN` |
+| `cloudflare` | static / exported sites | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` |
+| `surge` | quick static sites | `SURGE_TOKEN` |
+
+Use `DEPLOY_PROVIDER=auto` to pick whichever token you set. All run on **free tiers**.
+Tokens are passed to the CLI via environment only — never logged, never committed.
+Preview deploys run automatically at `high` autonomy; **production deploys always ask
+for approval** (inline button). Deploy manually anytime with `/deploy` (or `/deploy prod`).
 
 ## Security
 

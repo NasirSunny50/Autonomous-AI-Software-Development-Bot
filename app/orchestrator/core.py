@@ -49,7 +49,7 @@ class Orchestrator:
     def __init__(self, settings: Settings, store: StateStore, worker: ClaudeWorker,
                  notify: Notifier | None = None, glue: GlueAI | None = None,
                  gate: QualityGate | None = None, browser=None,
-                 request_approval: Approver | None = None):
+                 request_approval: Approver | None = None, deployer=None):
         self.settings = settings
         self.store = store
         self.worker = worker
@@ -57,6 +57,7 @@ class Orchestrator:
         self.glue = glue
         self.browser = browser
         self.request_approval = request_approval
+        self.deployer = deployer
         self.runner = ProjectCommandRunner(settings.workspaces_path)
         self.gate = gate or QualityGate(self.runner)
         self.policy = ApprovalPolicy(settings.autonomy_level)
@@ -269,6 +270,10 @@ class Orchestrator:
             f"Status: {'READY' if gate.passed else 'REVIEW'}")
         await self._log(project, f"finalized: {status.value}")
 
+        # Auto-deploy to a free host (only when it passed and deploy is configured).
+        if gate.passed and self.deployer is not None:
+            await self.deploy_project(project)
+
     # ================= helpers =================
     async def _budget_ok(self, project: Project, task: Task) -> bool:
         used = self._project_calls.get(project.id, 0)
@@ -368,6 +373,46 @@ class Orchestrator:
     async def run_gate_now(self, project: Project) -> GateResult:
         """Run the quality gate on demand (/test)."""
         return await self._run_gate(Path(project.workspace_path))
+
+    async def deploy_project(self, project: Project, prod: bool | None = None):
+        """Deploy to a free host and report the live URL (Phase 10 auto-deploy).
+
+        Publishing is public + outward-facing, so it respects the autonomy policy:
+        preview deploys are RISKY (auto only at high autonomy), production deploys
+        ALWAYS require explicit approval."""
+        if self.deployer is None:
+            await self.notify("ℹ️ Deployment is not configured. "
+                              "Set `DEPLOY_PROVIDER` + a token in `.env`.")
+            return None
+        prod = self.settings.deploy_prod if prod is None else prod
+
+        needs = prod or self.policy.needs_approval(ActionRisk.RISKY)
+        target = "production" if prod else "preview"
+        if needs:
+            if not self.request_approval:
+                await self.notify(f"⏭ Deploy skipped — {target} needs approval but "
+                                  f"no approval channel is available.")
+                return None
+            ok = await self.request_approval(
+                f"Deploy *{project.name}* to {self.deployer.name} ({target})?")
+            if not ok:
+                await self.notify("❌ Deploy cancelled.")
+                return None
+
+        await self.notify(f"🚀 Deploying *{project.name}* to {self.deployer.name} "
+                          f"({target})…")
+        result = await self.deployer.deploy(project.workspace_path, prod=prod)
+        if result.ok and result.url:
+            fresh = await self.store.get_project(project.id)
+            memory = ProjectMemory.from_json(fresh.memory_json)
+            memory.deploy_url = result.url
+            await self.store.update_project_memory(project.id, memory.to_dict())
+            await self._log(project, f"🌐 deployed: {result.url}")
+            await self.notify(f"🌐 *Live URL*\n{result.url}")
+        else:
+            await self._log(project, f"deploy failed: {result.error}")
+            await self.notify(f"⚠️ Deploy failed: `{result.error[:200]}`")
+        return result
 
     async def rollback_project(self, project: Project) -> bool:
         cp = await self.store.last_checkpoint(project.id)

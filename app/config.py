@@ -50,6 +50,17 @@ class Settings(BaseSettings):
     max_retries: int = 3
     daily_update_time: str = "21:00"
 
+    # ---- Auto-deploy (free hosts; opt-in) ----
+    # Provider: "" (disabled) | auto | vercel | cloudflare | surge.
+    # "auto" picks the first provider whose token is configured.
+    deploy_provider: str = ""
+    deploy_prod: bool = False           # False = preview deploy (safer default)
+    vercel_token: str = ""
+    cloudflare_api_token: str = ""
+    cloudflare_account_id: str = ""
+    surge_token: str = ""
+    surge_login: str = ""               # email for surge, if required
+
     # ---- Paths (relative values are resolved against ROOT_DIR) ----
     workspaces_dir: str = "workspaces"
     state_db_path: str = "data/state.db"

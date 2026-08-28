@@ -41,7 +41,8 @@ class ProjectCommandRunner:
         self.workspaces_root = Path(workspaces_root)
 
     async def run(self, project_path: Path | str, args: list[str], *, name: str,
-                  timeout: float = 300.0, allow_destructive: bool = False) -> RunOutcome:
+                  timeout: float = 300.0, allow_destructive: bool = False,
+                  env: dict[str, str] | None = None) -> RunOutcome:
         # 1. workspace containment
         validate_workspace(project_path, self.workspaces_root)
 
@@ -53,8 +54,8 @@ class ProjectCommandRunner:
             return RunOutcome(ok=False, blocked=True, skipped=False, name=name,
                               reason=f"destructive command requires approval: {match}")
 
-        # 3. bounded, logged execution
-        res = await run_command(args, cwd=project_path, timeout=timeout)
+        # 3. bounded, logged execution (secrets passed via env are never logged)
+        res = await run_command(args, cwd=project_path, timeout=timeout, env=env)
         log.info("cmd %-10s | ok=%s | exit=%s | %.1fs", name, res.ok, res.exit_code,
                  res.duration_s)
         return RunOutcome(ok=res.ok, blocked=False, skipped=False, name=name, result=res)
