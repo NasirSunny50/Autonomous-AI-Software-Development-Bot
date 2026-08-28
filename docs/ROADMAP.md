@@ -15,15 +15,19 @@ Legend: `[ ]` todo · `[~]` in progress · `[x]` done & tested
 
 ## Phase 1 — Vertical slice (thin end-to-end)  `[~]`
 > Prove the whole pipeline with the smallest real path before thickening it.
-- [ ] Typed config loader (`app/config.py`) from `.env` via pydantic-settings
-- [ ] Structured logging (`app/utils/logging.py`) → `logs/` + console
-- [ ] SQLite state store (`app/state/`): projects, tasks, checkpoints, logs
-- [ ] Deterministic subprocess runner (`app/utils/process.py`): capture stdout/stderr/exit/timeout
-- [ ] Claude Code headless wrapper (`app/claude/`): `claude -p ... --output-format json`
-- [ ] Git helper (`app/git/`): init/checkpoint/commit/rollback + `git diff --name-only`
-- [ ] Telegram interface (`app/telegram/`): auth allow-list, `/start /help /new /status`
-- [ ] Orchestrator skeleton (`app/orchestrator/`): requirement → 1 task → Claude Code → commit → report
-- [ ] `run.py` entrypoint; unit tests for deterministic pieces; manual E2E once token+CLI ready
+- [x] Typed config loader (`app/config.py`) from `.env` via pydantic-settings
+- [x] Structured logging (`app/utils/logging.py`) → `logs/` + console
+- [x] SQLite state store (`app/state/`): projects, tasks, checkpoints, logs, usage
+- [x] Deterministic subprocess runner (`app/utils/process.py`): capture stdout/stderr/exit/timeout
+- [x] Claude Code headless wrapper (`app/claude/`): `claude -p ... --output-format json`
+- [x] Claude-call budget guard (`app/claude/budget.py`): per-day/per-project caps
+- [x] Git helper (`app/git/`): init/checkpoint/commit/rollback + change detection
+- [x] Security guard (`app/security/`): workspace validation + destructive-command deny-list
+- [x] Telegram interface (`app/telegram/`): auth allow-list + `/start /help /new /status /projects /logs /autonomy /pause /resume /stop`
+- [x] Orchestrator skeleton (`app/orchestrator/`): requirement → 1 task → Claude Code → commit → report
+- [x] `run.py` entrypoint + config banner
+- [x] 30 unit tests green (process, state, git, security, text, claude-parse); ruff clean
+- [ ] **Manual E2E** — needs owner to: install Claude Code CLI, create `.env` (token + user id). Then send a requirement in Telegram.
 
 ## Phase 2 — Free AI provider abstraction  `[ ]`
 - [ ] `AIProvider` base + Gemini / Groq / OpenRouter implementations (httpx, async)
