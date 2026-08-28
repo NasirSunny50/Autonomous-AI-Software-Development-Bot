@@ -1,0 +1,19 @@
+# Core bot dependencies — all free/open-source.
+# Target: Python 3.10+ (a 3.10 venv is recommended for wheel compatibility).
+
+python-telegram-bot==21.9      # Telegram interface (async)
+pydantic==2.10.4               # typed config + task/plan models
+pydantic-settings==2.7.1       # load config from .env
+httpx==0.28.1                  # async HTTP for free AI providers
+aiosqlite==0.20.0              # async SQLite state store
+python-dotenv==1.0.1           # .env loading
+tenacity==9.0.0                # bounded retry helpers (no infinite loops)
+rich==13.9.4                   # readable local logs
+
+# Browser QA (installed in Phase 5; listed here for completeness).
+playwright==1.49.1
+
+# Dev / test tooling.
+pytest==8.3.4
+pytest-asyncio==0.25.0
+ruff==0.8.4
