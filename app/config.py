@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     kilo_api_key: str = ""
     gemini_model: str = "gemini-2.0-flash"
     groq_model: str = "llama-3.3-70b-versatile"
-    openrouter_model: str = "meta-llama/llama-3.3-70b-instruct:free"
+    openrouter_model: str = "google/gemma-4-26b-a4b-it:free"
     ollama_model: str = "gpt-oss:120b"
     ollama_base_url: str = "https://ollama.com/v1"
     kilo_model: str = "kilo-auto/free"   # FREE only (gateway also has paid models)

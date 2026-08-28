@@ -84,6 +84,21 @@ async def test_openai_compat_rate_limited():
     assert not r.ok and r.rate_limited
 
 
+async def test_openai_compat_multi_model_fallback():
+    def handler(request):
+        import json as _j
+        model = _j.loads(request.content)["model"]
+        if model == "free-a":            # first model rate-limited
+            return httpx.Response(429, text="quota")
+        return httpx.Response(200, json={"choices": [{"message": {"content": "B"}}]})
+
+    p = OpenRouterProvider("key", "free-a, free-b",
+                           transport=httpx.MockTransport(handler))
+    r = await p.complete("hi")
+    assert r.ok and r.text == "B" and r.model == "free-b"
+    assert p.models == ["free-a", "free-b"]
+
+
 async def test_ollama_success_and_base_url():
     from app.ai.providers.ollama import OllamaProvider
     captured = {}
