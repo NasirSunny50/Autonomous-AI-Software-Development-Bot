@@ -13,6 +13,8 @@ Loop per task:
 """
 from __future__ import annotations
 
+import asyncio
+import time
 from pathlib import Path
 from typing import Awaitable, Callable
 
@@ -296,7 +298,34 @@ class Orchestrator:
             return None
         await self.budget.record()
         self._project_calls[project.id] = self._project_calls.get(project.id, 0) + 1
-        return await self.worker.run_task(prompt, cwd=project.workspace_path)
+        return await self._with_heartbeat(
+            self.worker.run_task(prompt, cwd=project.workspace_path),
+            "👨‍💻 Claude Code")
+
+    async def _with_heartbeat(self, coro, label: str, interval: float = 45.0):
+        """Await `coro` while sending a periodic 'still working' update, so the
+        owner can see it's alive during long Claude/build steps."""
+        start = time.monotonic()
+        stop = asyncio.Event()
+
+        async def beat():
+            while True:
+                try:
+                    await asyncio.wait_for(stop.wait(), timeout=interval)
+                    return
+                except asyncio.TimeoutError:
+                    el = int(time.monotonic() - start)
+                    await self.notify(f"⏳ {label} cholche… ({el // 60}m {el % 60}s)")
+
+        bt = asyncio.create_task(beat())
+        try:
+            return await coro
+        finally:
+            stop.set()
+            try:
+                await bt
+            except Exception:  # pragma: no cover
+                pass
 
     async def _budget_ok_light(self, project: Project) -> bool:
         used = self._project_calls.get(project.id, 0)
@@ -312,7 +341,8 @@ class Orchestrator:
         # Gate scoped to THIS project's own directory — so commands are validated
         # against the project folder itself, allowing projects in any location.
         gate = self._gate or QualityGate(ProjectCommandRunner(workspace))
-        return await gate.run(workspace, browser=self.browser)
+        return await self._with_heartbeat(
+            gate.run(workspace, browser=self.browser), "🧪 Quality gate")
 
     async def _collect_evidence(self, gate: GateResult, repo: GitRepo) -> str:
         diff = await repo.short_diff()

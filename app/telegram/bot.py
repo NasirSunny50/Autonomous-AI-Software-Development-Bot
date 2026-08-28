@@ -528,6 +528,18 @@ class TelegramBot:
         # task made before polling starts; keep a ref so it isn't GC'd.
         self._digest_task = asyncio.create_task(self._daily_digest_loop())
         log.info("bot post-init complete; daily digest scheduled")
+        # Nudge about any unfinished work so it's easy to resume after a restart.
+        try:
+            project = await self.store.get_active_project()
+            if project and project.status == ProjectStatus.IN_PROGRESS.value:
+                tasks = await self.store.list_tasks(project.id)
+                if any(t.status in (TaskStatus.IN_PROGRESS.value, TaskStatus.PENDING.value)
+                       for t in tasks):
+                    await self.notify(
+                        f"⏳ Unfinished project ache: *{project.name}*.\n"
+                        "Continue korte likho: *resume koro* (ba /resume)")
+        except Exception as exc:  # pragma: no cover
+            log.warning("startup notice failed: %s", exc)
 
     # ---- wiring ----
     def build(self, orchestrator: Orchestrator) -> Application:
