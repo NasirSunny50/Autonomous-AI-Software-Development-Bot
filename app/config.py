@@ -42,11 +42,14 @@ class Settings(BaseSettings):
     groq_api_key: str = ""
     openrouter_api_key: str = ""
     ollama_api_key: str = ""
+    kilo_api_key: str = ""
     gemini_model: str = "gemini-2.0-flash"
     groq_model: str = "llama-3.3-70b-versatile"
     openrouter_model: str = "meta-llama/llama-3.3-70b-instruct:free"
     ollama_model: str = "gpt-oss:120b"
     ollama_base_url: str = "https://ollama.com/v1"
+    kilo_model: str = "kilo-auto/free"   # FREE only (gateway also has paid models)
+    kilo_base_url: str = "https://api.kilo.ai/api/gateway"
 
     # ---- Behaviour ----
     autonomy_level: Literal["low", "medium", "high"] = "high"
@@ -100,6 +103,8 @@ class Settings(BaseSettings):
             names.append("openrouter")
         if self.ollama_api_key:
             names.append("ollama")
+        if self.kilo_api_key:
+            names.append("kilo")
         return names
 
     def ensure_dirs(self) -> None:

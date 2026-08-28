@@ -99,3 +99,22 @@ async def test_ollama_success_and_base_url():
     assert r.ok and r.text == "oss" and r.provider == "ollama"
     assert captured["auth"] == "Bearer secret"
     assert captured["url"] == "https://ollama.com/v1/chat/completions"
+
+
+async def test_kilo_success_and_token_floor():
+    from app.ai.providers.kilo import KiloProvider
+    captured = {}
+
+    def handler(request):
+        import json as _j
+        captured["url"] = str(request.url)
+        captured["body"] = _j.loads(request.content)
+        return httpx.Response(200, json={"choices": [{"message": {"content": "k"}}]})
+
+    p = KiloProvider("tok", "kilo-auto/free", base_url="https://api.kilo.ai/api/gateway",
+                     transport=httpx.MockTransport(handler))
+    r = await p.complete("hi", max_tokens=10)   # tiny -> floored for reasoning models
+    assert r.ok and r.text == "k" and r.provider == "kilo"
+    assert captured["url"] == "https://api.kilo.ai/api/gateway/chat/completions"
+    assert captured["body"]["max_tokens"] >= 1024   # token floor applied
+    assert captured["body"]["model"] == "kilo-auto/free"

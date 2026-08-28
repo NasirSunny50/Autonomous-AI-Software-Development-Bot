@@ -1,7 +1,9 @@
-"""Shared base for OpenAI-compatible chat providers (Groq, OpenRouter).
+"""Shared base for OpenAI-compatible chat providers (Groq, OpenRouter, Ollama, Kilo).
 
-Both expose `/chat/completions` with Bearer auth and identical request/response
+They all expose `/chat/completions` with Bearer auth and identical request/response
 shapes, so they share one implementation and differ only by base URL / headers.
+`min_tokens` gives reasoning models (gpt-oss, some Kilo routes) enough budget that
+their visible answer (`message.content`) isn't consumed entirely by hidden reasoning.
 """
 from __future__ import annotations
 
@@ -12,6 +14,16 @@ from app.ai.providers.base import AIProvider, AIResponse
 
 class OpenAICompatProvider(AIProvider):
     base_url: str = ""          # e.g. https://api.groq.com/openai/v1
+    min_tokens: int = 0         # floor for reasoning models (0 = no floor)
+
+    def __init__(self, api_key: str, model: str, timeout: float = 45.0,
+                 transport: httpx.AsyncBaseTransport | None = None, *,
+                 base_url: str | None = None, min_tokens: int | None = None):
+        super().__init__(api_key, model, timeout, transport)
+        if base_url is not None:
+            self.base_url = base_url.rstrip("/")
+        if min_tokens is not None:
+            self.min_tokens = min_tokens
 
     def _extra_headers(self) -> dict:
         return {}
@@ -21,6 +33,7 @@ class OpenAICompatProvider(AIProvider):
         if not self.available():
             return self._fail("no api key")
 
+        max_tokens = max(max_tokens, self.min_tokens)
         messages = []
         if system:
             messages.append({"role": "system", "content": system})
@@ -46,4 +59,4 @@ class OpenAICompatProvider(AIProvider):
             text = data["choices"][0]["message"]["content"]
         except (KeyError, IndexError, ValueError) as exc:
             return self._fail(f"parse: {exc}")
-        return self._ok(text)
+        return self._ok(text or "")
