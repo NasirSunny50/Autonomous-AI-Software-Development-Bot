@@ -47,6 +47,65 @@ class BrowserQA:
         self.logs_dir = Path(logs_dir)
         self.startup_timeout = startup_timeout
 
+    async def capture_app(self, project_path: Path | str, info: dict,
+                          max_pages: int = 6) -> list[Path]:
+        """Screenshot the app's pages (phone-sized) and return the image paths.
+
+        Starts the dev server, opens the home page, then follows in-app links to
+        capture up to `max_pages` distinct routes. Returns [] if it can't run."""
+        if info.get("type") != "node" or not playwright_available():
+            return []
+        script = pick_dev_script(info.get("scripts", {}))
+        if not script:
+            return []
+        path = Path(project_path)
+        proc, url = await self._start_server(path, shell([info.get("pm", "npm"), "run", script]))
+        if url is None:
+            await self._stop(proc)
+            return []
+        self.logs_dir.mkdir(parents=True, exist_ok=True)
+        shots: list[Path] = []
+        try:
+            from playwright.async_api import async_playwright
+            base = url.rstrip("/")
+            async with async_playwright() as pw:
+                browser = await pw.chromium.launch(headless=True)
+                page = await browser.new_page(viewport={"width": 390, "height": 844})
+                visited: set[str] = set()
+                queue: list[str] = ["/"]
+                while queue and len(shots) < max_pages:
+                    route = queue.pop(0)
+                    if route in visited:
+                        continue
+                    visited.add(route)
+                    try:
+                        await page.goto(base + route, wait_until="load", timeout=20000)
+                        await page.wait_for_timeout(1200)
+                    except Exception:
+                        continue
+                    name = (route.strip("/").replace("/", "_") or "home")
+                    shot = self.logs_dir / f"{path.name}-{name}.png"
+                    await page.screenshot(path=str(shot), full_page=True)
+                    shots.append(shot)
+                    if len(shots) < max_pages:
+                        try:
+                            hrefs = await page.eval_on_selector_all(
+                                "a[href^='/']",
+                                "els => els.map(e => e.getAttribute('href'))")
+                        except Exception:
+                            hrefs = []
+                        for h in hrefs:
+                            h = (h or "").split("?")[0].split("#")[0]
+                            if h and h not in visited and h not in queue:
+                                queue.append(h)
+                await browser.close()
+        except Exception as exc:
+            log.warning("capture_app error: %s", exc)
+        finally:
+            await self._stop(proc)
+        log.info("captured %d screenshot(s) for %s", len(shots), path.name)
+        return shots
+
     async def smoke_test(self, project_path: Path | str, info: dict) -> CheckResult:
         if info.get("type") != "node":
             return CheckResult("browser", "skip", "not a web project")

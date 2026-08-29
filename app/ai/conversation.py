@@ -20,13 +20,20 @@ from __future__ import annotations
 from app.utils.jsonparse import extract_json
 
 INTENTS = {"new_project", "status", "switch_project", "question",
-           "confirm", "cancel", "help", "chitchat"}
+           "confirm", "cancel", "help", "chitchat",
+           "test", "screenshots", "feedback"}
 
 _SYSTEM = (
     "You are the friendly assistant of an autonomous software-development bot. "
     "The bot builds software projects for the owner. Classify the owner's message "
-    "into one intent and write a short, warm reply IN THE OWNER'S OWN LANGUAGE/STYLE "
-    "(Banglish/Bengali/English are all fine). Never use slash commands in the reply."
+    "into ONE intent and write a short, warm reply IN THE OWNER'S OWN LANGUAGE/STYLE "
+    "(Banglish/Bengali/English are all fine). Never use slash commands in the reply.\n"
+    "Intents: new_project (build a NEW app), feedback (fix/change/add something in "
+    "the CURRENT project — e.g. 'login button kaj kore na', 'ei color ta change koro'), "
+    "test (run tests/quality checks), screenshots (send screenshots of the app pages), "
+    "status (progress), switch_project, question (ask about the project), "
+    "confirm, cancel, help, chitchat. Prefer 'feedback' over 'new_project' when a "
+    "project is already active and the owner describes a change or a problem."
 )
 
 
@@ -82,12 +89,24 @@ class ConversationEngine:
                    " skip "]):
             return {"intent": "cancel", "project_name": "",
                     "reply": "Thik ache, cancel korlam. 🙂"}
+        if any_in([" test ", " test koro ", " gate ", " check koro ", " verify ",
+                   " tested "]):
+            return {"intent": "test", "project_name": "", "reply": ""}
+        if any_in([" screenshot ", " screenshots ", " ss ", " chobi ", " chhobi ",
+                   " pic ", " snap ", " page dekh ", " dekhte chai "]):
+            return {"intent": "screenshots", "project_name": "", "reply": ""}
         if any_in([" status ", " progress ", " obostha ", " koddur ", " kotdur ",
                    " ki obostha ", " kototuku ", " update "]):
             return {"intent": "status", "project_name": "", "reply": ""}
         if any_in([" switch ", " onno project ", " change project ", " different project ",
                    " select project "]):
             return {"intent": "switch_project", "project_name": "", "reply": ""}
+        # A change/fix request on the ACTIVE project = feedback (not a new project).
+        if has_active and any_in([" issue ", " problem ", " bug ", " fix ", " thik koro ",
+                                  " thik kore ", " kaj kore na ", " hocche na ", " hoche na ",
+                                  " change koro ", " add koro ", " kore dao ", " thik kore dao ",
+                                  " thik korte ", " edit ", " update koro "]):
+            return {"intent": "feedback", "project_name": "", "reply": ""}
         if any_in([" build ", " create ", " make ", " develop ", " banao ", " baniye ",
                    " bananor ", " toiri ", " banabo ", " bana ", " app ", " website ",
                    " site ", " system "]):

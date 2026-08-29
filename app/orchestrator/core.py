@@ -406,6 +406,34 @@ class Orchestrator:
         """Run the quality gate on demand (/test)."""
         return await self._run_gate(Path(project.workspace_path))
 
+    async def add_feedback_task(self, description: str) -> str | None:
+        """Owner gives a high-level issue/change in plain words; turn it into a
+        clear task for the active project. A free model elaborates the brief note
+        into a specific goal (so Claude Code gets a deep, precise task). Returns
+        the goal, or None if there's no active project. The task is then picked up
+        by the run loop / autonomy supervisor and self-healed like any other."""
+        project = await self.store.get_active_project()
+        if not project:
+            return None
+        goal = description.strip()
+        if self.glue is not None:
+            resp = await self.glue.router.complete(
+                "Rewrite this change/bug request from a project owner into a clear, "
+                "specific implementation task for a coding agent (1-3 sentences). "
+                "Keep their intent; add helpful specifics. Reply with ONLY the task.\n\n"
+                + description, kind="normal", max_tokens=220)
+            if resp.ok and resp.text.strip():
+                goal = resp.text.strip()[:500]
+        existing = await self.store.list_tasks(project.id)
+        key = f"CHG-{len(existing) + 1:03d}"
+        await self.store.add_task(project.id, key, goal=goal, requirements=[],
+                                  acceptance=["Change works as described", "Build passes"],
+                                  order_index=100 + len(existing))
+        await self.store.update_project_status(project.id, ProjectStatus.IN_PROGRESS.value)
+        self._paused.discard(project.id)
+        await self._log(project, f"📝 feedback task {key}: {goal[:80]}")
+        return goal
+
     async def deploy_project(self, project: Project, prod: bool | None = None):
         """Deploy to a free host and report the live URL (Phase 10 auto-deploy).
 

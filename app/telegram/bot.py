@@ -38,11 +38,15 @@ HELP = """\
 
 Just *talk to me normally* — no commands needed. For example:
 • _"Ekta ecommerce site banao"_ → I'll name it & start
-• _"kdur holo?"_ / _"ki obostha?"_ → progress update
-• _"login page ta ki hoise?"_ → I'll answer about the project
+• _"kdur holo?"_ / _"ki obostha?"_ → live progress
+• _"login button kaj kore na, thik koro"_ → I fix it via Claude
+• _"test koro"_ → run the quality checks
+• _"sob page er screenshot pathao"_ → I send screenshots
 • _"onno project e kaj koro"_ → switch project
 
-When you ask me to build something, I'll confirm the name first, then go.
+I take ownership and finish work in the background on my own; I only ask you
+when something genuinely needs a human. When you ask me to build something new,
+I'll confirm the name first, then go.
 
 Handy commands (optional):
 /workdir — set the folder to build the next project in
@@ -402,6 +406,12 @@ class TelegramBot:
             if not await self._try_switch(update, text + " " + project_name):
                 await update.message.reply_text(
                     reply or "Kon project e jabo? Naam bolo, ba 'project list' likho.")
+        elif intent == "test":
+            await self.cmd_test(update, None)
+        elif intent == "screenshots":
+            await self._handle_screenshots(update)
+        elif intent == "feedback":
+            await self._handle_feedback(update, text)
         elif intent == "question":
             answer = await self.orchestrator.answer_question(text)
             await update.message.reply_text(truncate(redact(answer), 3500))
@@ -409,6 +419,58 @@ class TelegramBot:
             await update.message.reply_text(HELP, parse_mode=ParseMode.MARKDOWN)
         else:  # chitchat
             await update.message.reply_text(reply or "🙂")
+
+    async def _handle_feedback(self, update: Update, text: str) -> None:
+        project = await self.store.get_active_project()
+        if not project:
+            await update.message.reply_text(
+                "Kono active project nei. Age ekta banai? 🙂")
+            return
+        goal = await self.orchestrator.add_feedback_task(text)
+        if self._busy:
+            await update.message.reply_text(
+                f"📝 Queue korlam: _{goal[:120]}_\nCurrent kaj shesh hole korbo.",
+                parse_mode=ParseMode.MARKDOWN)
+        else:
+            await update.message.reply_text(
+                f"📝 Bujhlam, thik korchi: _{goal[:120]}_ 🔧", parse_mode=ParseMode.MARKDOWN)
+            self._run_bg(self.orchestrator.run_project(project))
+
+    async def _handle_screenshots(self, update: Update) -> None:
+        project = await self.store.get_active_project()
+        if not project:
+            await update.message.reply_text("Kono active project nei. 🙂")
+            return
+        if not self.orchestrator.browser:
+            await update.message.reply_text("Browser QA off ache (playwright nei).")
+            return
+        if self._busy:
+            await update.message.reply_text(
+                "⏳ Ekhon build cholche — shesh hole screenshot dite parbo.")
+            return
+        await update.message.reply_text("📸 App khule screenshot nicchi… ektu wait koro.")
+        self._run_bg(self._do_screenshots(project))
+
+    async def _do_screenshots(self, project) -> None:
+        from pathlib import Path
+
+        from app.testing.commands import ProjectCommandRunner
+        from app.testing.quality_gate import QualityGate
+        path = Path(project.workspace_path)
+        info = QualityGate(ProjectCommandRunner(path)).detect(path)
+        shots = await self.orchestrator.browser.capture_app(path, info)
+        chat = self.settings.telegram_allowed_user_id
+        if not shots:
+            await self.app.bot.send_message(
+                chat, "📸 Screenshot nite parlam na (dev server ba route pelam na).")
+            return
+        for s in shots:
+            try:
+                with open(s, "rb") as fh:
+                    await self.app.bot.send_photo(chat, photo=fh, caption=s.stem)
+            except Exception as exc:  # pragma: no cover
+                log.warning("send_photo failed: %s", exc)
+        await self.app.bot.send_message(chat, f"✅ {len(shots)} ta page pathalam.")
 
     async def _try_switch(self, update: Update, text: str) -> bool:
         low = text.lower()

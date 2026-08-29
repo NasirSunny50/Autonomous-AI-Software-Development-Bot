@@ -74,3 +74,24 @@ async def test_fallback_question_when_active():
 async def test_fallback_chitchat_when_idle():
     e = ConversationEngine(None)
     assert (await e.interpret("hello there", {}))["intent"] == "chitchat"
+
+
+async def test_fallback_test_intent():
+    e = ConversationEngine(None)
+    assert (await e.interpret("test koro", {}))["intent"] == "test"
+
+
+async def test_fallback_screenshots_intent():
+    e = ConversationEngine(None)
+    assert (await e.interpret("sob page er screenshot pathao", {}))["intent"] == "screenshots"
+
+
+async def test_fallback_feedback_needs_active_project():
+    e = ConversationEngine(None)
+    # with an active project, a fix request is feedback (not a new project)
+    out = await e.interpret("login button kaj kore na, thik koro",
+                            {"active_project": "Shop"})
+    assert out["intent"] == "feedback"
+    # without an active project it should NOT be feedback
+    out2 = await e.interpret("login button kaj kore na", {})
+    assert out2["intent"] != "feedback"
